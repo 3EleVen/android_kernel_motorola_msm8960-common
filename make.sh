@@ -6,8 +6,9 @@
     THREADS=$(expr 4 + $(grep processor /proc/cpuinfo | wc -l))
     DEFCONFIG=msm8960_mmi_defconfig
     ARCH="ARCH=arm"
-    COMP="/media/raid/dev/toolchain/arm-eabi-4.6/bin/"
-    CROSS="CROSS_COMPILE=/media/raid/dev/toolchain/arm-eabi-4.6/bin/arm-eabi-"
+    COMP="/usr/bin"
+    CROSS="CROSS_COMPILE=arm-linux-gnueabi-"
+   # CROSS="CROSS_COMPILE=/media/raid/dev/toolchain/arm-eabi-4.6/bin/arm-eabi-"
 #    CROSS="CROSS_COMPILE=/media/raid/dev/trees/prebuilt/linux-x86/toolchain/arm-eabi-4.4.3/bin/arm-eabi-"
 #    CROSS="CROSS_COMPILE=/home/arrrghhh/toolchain/google/linux-x86/toolchain/arm-eabi-4.4.3/bin/arm-eabi-"
 #    CROSS="CROSS_COMPILE=/home/arrrghhh/toolchain/linaro/android-toolchain-eabi_4.6-2012.07/bin/arm-eabi-"
@@ -88,7 +89,7 @@
     cd $PACK
 	cp $OUT/zImage $PACK
 	$TOOLS/mkbootfs $RAMDISK | gzip > $PACK/ramdisk.gz
-	$TOOLS/mkbootimg --cmdline "console=/dev/null androidboot.hardware=qcom user_debug=31 loglevel=1 zcache" --kernel $PACK/zImage --ramdisk $PACK/ramdisk.gz $PAGE $BASE $RAMADDR -o $PACK/boot.img
+	$TOOLS/mkbootimg --cmdline "console=/dev/null androidboot.hardware=qcom user_debug=31 loglevel=1 zcache androidboot.selinux=permissive" --kernel $PACK/zImage --ramdisk $PACK/ramdisk.gz $PAGE $BASE $RAMADDR -o $PACK/boot.img
 	rm -rf ramdisk.gz
 	rm -rf zImage
 	cp -R $TOOLS/Updater-Scripts/XT897_cm/* $PACK
