@@ -3423,14 +3423,14 @@ static struct clk_freq_tbl clk_tbl_gfx3d_8960_oc[] = {
   F_GFX3D(300000000, pll3, 1,  4),
   F_GFX3D(320000000, pll2, 2,  5),
   F_GFX3D(400000000, pll2, 1,  2),
-  F_GFX3D(560000000, pll3, 2,  5),
+  F_GFX3D(580000000, pll3, 2,  5),
   F_END
 };
 
 static unsigned long fmax_gfx3d_8960_oc[MAX_VDD_LEVELS] __initdata = {
   [VDD_DIG_LOW]     = 128000000,
   [VDD_DIG_NOMINAL] = 320000000,
-  [VDD_DIG_HIGH]    = 560000000
+  [VDD_DIG_HIGH]    = 580000000
 };
 #else
 static struct clk_freq_tbl clk_tbl_gfx3d_8960_v2[] = {
