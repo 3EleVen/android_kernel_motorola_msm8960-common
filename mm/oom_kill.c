@@ -1,4 +1,4 @@
-/*
+if (fatal_signal_pending(current)) {/*
  *  linux/mm/oom_kill.c
  * 
  *  Copyright (C)  1998,2000  Rik van Riel
@@ -551,7 +551,7 @@ void mem_cgroup_out_of_memory(struct mem_cgroup *mem, gfp_t gfp_mask)
 	 * goal is to allow it to allocate so that it may quickly exit and free
 	 * its memory.
 	 */
-	if (fatal_signal_pending(current)) {
+	if (fatal_signal_pending(current) || current->flags & PF_EXITING) {
 		set_thread_flag(TIF_MEMDIE);
 		return;
 	}
