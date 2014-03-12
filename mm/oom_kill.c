@@ -1,4 +1,4 @@
-if (fatal_signal_pending(current)) {/*
+/*
  *  linux/mm/oom_kill.c
  * 
  *  Copyright (C)  1998,2000  Rik van Riel
