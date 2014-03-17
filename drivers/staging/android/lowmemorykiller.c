@@ -42,7 +42,7 @@
 #include <linux/mutex.h>
 #include <linux/delay.h>
 #include <linux/fs.h>
-
+#include <linux/swap.h>
 
 #ifdef CONFIG_HIGHMEM
 #define _ZONE ZONE_HIGHMEM
