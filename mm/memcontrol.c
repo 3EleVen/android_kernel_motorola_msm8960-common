@@ -2282,7 +2282,7 @@ static int mem_cgroup_do_charge(struct mem_cgroup *mem, gfp_t gfp_mask,
 static int __mem_cgroup_try_charge(struct mm_struct *mm,
 				   gfp_t gfp_mask,
 				   unsigned int nr_pages,
-				   struct mem_cgroup **memcg,
+				   struct mem_cgroup **ptr,
 				   bool oom)
 {
 	unsigned int batch = max(CHARGE_BATCH, nr_pages);
@@ -2305,11 +2305,11 @@ static int __mem_cgroup_try_charge(struct mm_struct *mm,
 	 * thread group leader migrates. It's possible that mm is not
 	 * set, if so charge the init_mm (happens for pagecache usage).
 	 */
-	if (!*memcg && !mm)
+	if (!*ptr && !mm)
 		goto bypass;
 again:
-	if (*memcg) { /* css should be a valid one */
-		mem = *memcg;
+	if (*ptr) { /* css should be a valid one */
+		memcg = *ptr;
 		VM_BUG_ON(css_is_removed(&mem->css));
 		if (mem_cgroup_is_root(mem))
 			goto done;
@@ -2399,15 +2399,15 @@ again:
 
 	if (batch > nr_pages)
 		refill_stock(mem, batch - nr_pages);
-	css_put(&mem->css);
+	css_put(&memcg->css);
 done:
-	*memcg = mem;
+	*ptr = memcg;
 	return 0;
 nomem:
-	*memcg = NULL;
+	*ptr = NULL;
 	return -ENOMEM;
 bypass:
-	*memcg = NULL;
+	*ptr = NULL;
 	return 0;
 }
 
@@ -2760,7 +2760,7 @@ __mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *ptr,
 					enum charge_type ctype);
 
 static void
-__mem_cgroup_commit_charge_lrucare(struct page *page, struct mem_cgroup *mem,
+__mem_cgroup_commit_charge_lrucare(struct page *page, struct mem_cgroup *memcg,
 					enum charge_type ctype)
 {
 	struct page_cgroup *pc = lookup_page_cgroup(page);
@@ -2831,7 +2831,7 @@ int mem_cgroup_cache_charge(struct page *page, struct mm_struct *mm,
 	if (PageSwapCache(page)) {
 		ret = mem_cgroup_try_charge_swapin(mm, page, gfp_mask, &mem);
 		if (!ret)
-			__mem_cgroup_commit_charge_swapin(page, mem,
+			__mem_cgroup_commit_charge_swapin(page, memcg,
 					MEM_CGROUP_CHARGE_TYPE_SHMEM);
 	} else
 		ret = mem_cgroup_charge_common(page, mm, gfp_mask,
@@ -2848,12 +2848,12 @@ int mem_cgroup_cache_charge(struct page *page, struct mm_struct *mm,
  */
 int mem_cgroup_try_charge_swapin(struct mm_struct *mm,
 				 struct page *page,
-				 gfp_t mask, struct mem_cgroup **ptr)
+				 gfp_t mask, struct mem_cgroup **memcgp)
 {
 	struct mem_cgroup *mem;
 	int ret;
 
-	*ptr = NULL;
+	*memcgp = NULL;
 
 	if (mem_cgroup_disabled())
 		return 0;
@@ -2869,29 +2869,29 @@ int mem_cgroup_try_charge_swapin(struct mm_struct *mm,
 	if (!PageSwapCache(page))
 		goto charge_cur_mm;
 	mem = try_get_mem_cgroup_from_page(page);
-	if (!mem)
+	if (!memcg)
 		goto charge_cur_mm;
-	*ptr = mem;
-	ret = __mem_cgroup_try_charge(NULL, mask, 1, ptr, true);
-	css_put(&mem->css);
+	*memcgp = memcg;
+	ret = __mem_cgroup_try_charge(NULL, mask, 1, memcgp, true);
+	css_put(&memcg->css);
 	return ret;
 charge_cur_mm:
 	if (unlikely(!mm))
 		mm = &init_mm;
-	return __mem_cgroup_try_charge(mm, mask, 1, ptr, true);
+	return __mem_cgroup_try_charge(mm, mask, 1, memcgp, true);
 }
 
 static void
-__mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *ptr,
+__mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *memcg,
 					enum charge_type ctype)
 {
 	if (mem_cgroup_disabled())
 		return;
-	if (!ptr)
+	if (!memcg)
 		return;
-	cgroup_exclude_rmdir(&ptr->css);
+	cgroup_exclude_rmdir(&memcg->css);
 
-	__mem_cgroup_commit_charge_lrucare(page, ptr, ctype);
+	__mem_cgroup_commit_charge_lrucare(page, memcg, ctype);
 	/*
 	 * Now swap is on-memory. This means this page may be
 	 * counted both as mem and swap....double count.
@@ -2901,21 +2901,22 @@ __mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *ptr,
 	 */
 	if (do_swap_account && PageSwapCache(page)) {
 		swp_entry_t ent = {.val = page_private(page)};
+		struct mem_cgroup *swap_memcg;
 		unsigned short id;
-		struct mem_cgroup *memcg;
 
 		id = swap_cgroup_record(ent, 0);
 		rcu_read_lock();
-		memcg = mem_cgroup_lookup(id);
-		if (memcg) {
+		swap_memcg = mem_cgroup_lookup(id);
+		if (swap_memcg) {
 			/*
 			 * This recorded memcg can be obsolete one. So, avoid
 			 * calling css_tryget
 			 */
-			if (!mem_cgroup_is_root(memcg))
-				res_counter_uncharge(&memcg->memsw, PAGE_SIZE);
-			mem_cgroup_swap_statistics(memcg, false);
-			mem_cgroup_put(memcg);
+			if (!mem_cgroup_is_root(swap_memcg))
+				res_counter_uncharge(&swap_memcg->memsw,
+						     PAGE_SIZE);
+			mem_cgroup_swap_statistics(swap_memcg, false);
+			mem_cgroup_put(swap_memcg);
 		}
 		rcu_read_unlock();
 	}
@@ -2924,12 +2925,12 @@ __mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *ptr,
 	 * So, rmdir()->pre_destroy() can be called while we do this charge.
 	 * In that case, we need to call pre_destroy() again. check it here.
 	 */
-	cgroup_release_and_wakeup_rmdir(&ptr->css);
+	cgroup_release_and_wakeup_rmdir(&memcg->css);
 }
 
-void mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *ptr)
+void mem_cgroup_commit_charge_swapin(struct page *page, struct mem_cgroup *memcg)
 {
-	__mem_cgroup_commit_charge_swapin(page, ptr,
+	__mem_cgroup_commit_charge_swapin(page, memcg,
 					MEM_CGROUP_CHARGE_TYPE_MAPPED);
 }
 
@@ -3259,14 +3260,14 @@ static inline int mem_cgroup_move_swap_account(swp_entry_t entry,
  * page belongs to.
  */
 int mem_cgroup_prepare_migration(struct page *page,
-	struct page *newpage, struct mem_cgroup **ptr, gfp_t gfp_mask)
+	struct page *newpage, struct mem_cgroup **memcg, gfp_t gfp_mask)
 {
 	struct mem_cgroup *mem = NULL;
 	struct page_cgroup *pc;
 	enum charge_type ctype;
 	int ret = 0;
 
-	*ptr = NULL;
+	*memcg = NULL;
 
 	VM_BUG_ON(PageTransHuge(page));
 	if (mem_cgroup_disabled())
@@ -3317,10 +3318,10 @@ int mem_cgroup_prepare_migration(struct page *page,
 	if (!mem)
 		return 0;
 
-	*ptr = mem;
-	ret = __mem_cgroup_try_charge(NULL, gfp_mask, 1, ptr, false);
+	*memcg = mem;
+	ret = __mem_cgroup_try_charge(NULL, gfp_mask, 1, memcgp, false);
 	css_put(&mem->css);/* drop extra refcnt */
-	if (ret || *ptr == NULL) {
+	if (ret || *memcgp == NULL) {
 		if (PageAnon(page)) {
 			lock_page_cgroup(pc);
 			ClearPageCgroupMigration(pc);
@@ -5006,12 +5007,12 @@ static int mem_cgroup_soft_limit_tree_init(void)
 static struct cgroup_subsys_state * __ref
 mem_cgroup_create(struct cgroup_subsys *ss, struct cgroup *cont)
 {
-	struct mem_cgroup *mem, *parent;
+	struct mem_cgroup *memcg, *parent;
 	long error = -ENOMEM;
 	int node;
 
 	mem = mem_cgroup_alloc();
-	if (!mem)
+	if (!memcg)
 		return ERR_PTR(error);
 
 	for_each_node_state(node, N_POSSIBLE)
@@ -5025,7 +5026,7 @@ mem_cgroup_create(struct cgroup_subsys *ss, struct cgroup *cont)
 		parent = NULL;
 		if (mem_cgroup_soft_limit_tree_init())
 			goto free_out;
-		root_mem_cgroup = mem;
+		root_mem_cgroup = memcg;
 		for_each_possible_cpu(cpu) {
 			struct memcg_stock_pcp *stock =
 						&per_cpu(memcg_stock, cpu);
@@ -5034,13 +5035,13 @@ mem_cgroup_create(struct cgroup_subsys *ss, struct cgroup *cont)
 		hotcpu_notifier(memcg_cpu_hotplug_callback, 0);
 	} else {
 		parent = mem_cgroup_from_cont(cont->parent);
-		mem->use_hierarchy = parent->use_hierarchy;
-		mem->oom_kill_disable = parent->oom_kill_disable;
+		memcg->use_hierarchy = parent->use_hierarchy;
+		memcg->oom_kill_disable = parent->oom_kill_disable;
 	}
 
 	if (parent && parent->use_hierarchy) {
-		res_counter_init(&mem->res, &parent->res);
-		res_counter_init(&mem->memsw, &parent->memsw);
+		res_counter_init(&memcg->res, &parent->res);
+		res_counter_init(&memcg->memsw, &parent->memsw);
 		/*
 		 * We increment refcnt of the parent to ensure that we can
 		 * safely access it on res_counter_charge/uncharge.
@@ -5049,21 +5050,21 @@ mem_cgroup_create(struct cgroup_subsys *ss, struct cgroup *cont)
 		 */
 		mem_cgroup_get(parent);
 	} else {
-		res_counter_init(&mem->res, NULL);
-		res_counter_init(&mem->memsw, NULL);
+		res_counter_init(&memcg->res, NULL);
+		res_counter_init(&memcg->memsw, NULL);
 	}
 	mem->last_scanned_child = 0;
-	mem->last_scanned_node = MAX_NUMNODES;
+	memcg->last_scanned_node = MAX_NUMNODES;
 	INIT_LIST_HEAD(&mem->oom_notify);
 
 	if (parent)
 		mem->swappiness = get_swappiness(parent);
 	atomic_set(&mem->refcnt, 1);
-	mem->move_charge_at_immigrate = 0;
+	memcg->move_charge_at_immigrate = 0;
 	mutex_init(&mem->thresholds_lock);
-	return &mem->css;
+	return &memcg->css;
 free_out:
-	__mem_cgroup_free(mem);
+	__mem_cgroup_free(memcg);
 	return ERR_PTR(error);
 }
 
