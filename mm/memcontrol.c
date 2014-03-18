@@ -853,16 +853,16 @@ void mem_cgroup_count_vm_event(struct mm_struct *mm, enum vm_event_item idx)
 		return;
 
 	rcu_read_lock();
-	mem = mem_cgroup_from_task(rcu_dereference(mm->owner));
-	if (unlikely(!mem))
+	memcg = mem_cgroup_from_task(rcu_dereference(mm->owner));
+	if (unlikely(!memcg))
 		goto out;
 
 	switch (idx) {
 	case PGMAJFAULT:
-		mem_cgroup_pgmajfault(mem, 1);
+		mem_cgroup_pgmajfault(memcg, 1);
 		break;
 	case PGFAULT:
-		mem_cgroup_pgfault(mem, 1);
+		mem_cgroup_pgfault(memcg, 1);
 		break;
 	default:
 		BUG();
@@ -1043,7 +1043,7 @@ void mem_cgroup_move_lists(struct page *page,
 	mem_cgroup_add_lru_list(page, to);
 }
 
-int task_in_mem_cgroup(struct task_struct *task, const struct mem_cgroup *mem)
+int task_in_mem_cgroup(struct task_struct *task, const struct mem_cgroup *memcg)
 {
 	int ret;
 	struct mem_cgroup *curr = NULL;
@@ -1062,10 +1062,10 @@ int task_in_mem_cgroup(struct task_struct *task, const struct mem_cgroup *mem)
 	 * enabled in "curr" and "curr" is a child of "mem" in *cgroup*
 	 * hierarchy(even if use_hierarchy is disabled in "mem").
 	 */
-	if (mem->use_hierarchy)
-		ret = css_is_ancestor(&curr->css, &mem->css);
+	if (memcg->use_hierarchy)
+		ret = css_is_ancestor(&curr->css, &memcg->css);
 	else
-		ret = (curr == mem);
+		ret = (curr == memcg);
 	css_put(&curr->css);
 	return ret;
 }
@@ -2530,39 +2530,43 @@ static void __mem_cgroup_commit_charge(struct mem_cgroup *mem,
 			(1 << PCG_ACCT_LRU) | (1 << PCG_MIGRATION))
 /*
  * Because tail pages are not marked as "used", set it. We're under
- * zone->lru_lock, 'splitting on pmd' and compund_lock.
+ * zone->lru_lock, 'splitting on pmd' and compound_lock.
+ * charge/uncharge will be never happen and move_account() is done under
+ * compound_lock(), so we don't have to take care of races.
  */
-void mem_cgroup_split_huge_fixup(struct page *head, struct page *tail)
+void mem_cgroup_split_huge_fixup(struct page *head)
 {
 	struct page_cgroup *head_pc = lookup_page_cgroup(head);
-	struct page_cgroup *tail_pc = lookup_page_cgroup(tail);
-	unsigned long flags;
-
+	
+	struct page_cgroup *pc;
+	int i;
+	
 	if (mem_cgroup_disabled())
-		return;
-	/*
-	 * We have no races with charge/uncharge but will have races with
-	 * page state accounting.
-	 */
-	move_lock_page_cgroup(head_pc, &flags);
 
-	tail_pc->mem_cgroup = head_pc->mem_cgroup;
-	smp_wmb(); /* see __commit_charge() */
+		return;
+	for (i = 1; i < HPAGE_PMD_NR; i++) {
+		pc = head_pc + i;
+		pc->mem_cgroup = head_pc->mem_cgroup;
+		smp_wmb();/* see __commit_charge() */
+		/*
+		 * LRU flags cannot be copied because we need to add tail
+		 * page to LRU by generic call and our hooks will be called.
+		 */
+		pc->flags = head_pc->flags & ~PCGF_NOCOPY_AT_SPLIT;
+	}
+
+
 	if (PageCgroupAcctLRU(head_pc)) {
 		enum lru_list lru;
 		struct mem_cgroup_per_zone *mz;
 
 		/*
-		 * LRU flags cannot be copied because we need to add tail
-		 *.page to LRU by generic call and our hook will be called.
 		 * We hold lru_lock, then, reduce counter directly.
 		 */
 		lru = page_lru(head);
 		mz = page_cgroup_zoneinfo(head_pc->mem_cgroup, head);
-		MEM_CGROUP_ZSTAT(mz, lru) -= 1;
+		MEM_CGROUP_ZSTAT(mz, lru) -= HPAGE_PMD_NR - 1;;
 	}
-	tail_pc->flags = head_pc->flags & ~PCGF_NOCOPY_AT_SPLIT;
-	move_unlock_page_cgroup(head_pc, &flags);
 }
 #endif
 
