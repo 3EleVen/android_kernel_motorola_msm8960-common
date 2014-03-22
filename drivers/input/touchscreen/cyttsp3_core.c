@@ -2785,7 +2785,8 @@ int cyttsp_suspend(void *handle)
 	uint8_t sleep;
 	
 #ifdef CONFIG_TOUCHSCREEN_PREVENT_SLEEP
-	if ((s2w_switch > 0) || (dt2w_switch > 0)) {
+	//if ((s2w_switch > 0) || (dt2w_switch > 0)) {
+		if (dt2w_switch > 0) {
 		pr_info("suspend avoided!\n");
 		pr_err("%s: Already in %s state\n", __func__,
 				cyttsp_powerstate_string[ts->power_state]);
