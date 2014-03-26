@@ -877,13 +877,13 @@ static int cpufreq_add_dev_interface(unsigned int cpu,
 		
 	/* create cpu device kset */
 	if (!cpudev_kset) {
-		cpudev_kset = kset_create_and_add("kset", NULL, &dev->kobj);
+		cpudev_kset = kset_create_and_add("kset", NULL, &sys_dev->kobj);
 		BUG_ON(!cpudev_kset);
-		dev->kobj.kset = cpudev_kset;
+		sys_dev->kobj.kset = cpudev_kset;
 	}
 
 	/* send uevent when cpu device is added */
-	kobject_uevent(&dev->kobj, KOBJ_ADD);
+	kobject_uevent(&sys_dev->kobj, KOBJ_ADD);
 	
 	/* set up files for this cpu device */
 	drv_attr = cpufreq_driver->attr;
